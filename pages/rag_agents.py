@@ -18,7 +18,6 @@ from utils.ui_helper import UIHelper
 # Load environment variables from .env file
 # load_dotenv(override=True)
 
-# https://ai.google.dev/gemini-api/docs/pricing
 # URL configurations
 OPENAI_API_KEY = st.secrets["OPENAI_API_KEY"]
 GEMINI_API_KEY = st.secrets["GEMINI_API_KEY"]
@@ -30,15 +29,15 @@ user_image = "https://www.w3schools.com/howto/img_avatar.png"
 seed = 42
 
 llm_config_gemini = LLMConfig(
-    api_type = "google", 
-    model="gemini-2.0-flash-lite",                    # The specific model
-    api_key=GEMINI_API_KEY,   # Authentication
+    api_type="google",
+    model="gemini-2.0-flash-lite",  # The specific model
+    api_key=GEMINI_API_KEY,  # Authentication
 )
 
 llm_config_openai = LLMConfig(
-    api_type = "openai", 
-    model="gpt-4o-mini",                    # The specific model
-    api_key=OPENAI_API_KEY,   # Authentication
+    api_type="openai",
+    model="gpt-4o-mini",  # The specific model
+    api_key=OPENAI_API_KEY,  # Authentication
 )
 
 with llm_config_gemini:
@@ -103,6 +102,10 @@ def main():
     st_c_chat = st.container(border=True)
     UIHelper.setup_chat(st_c_chat)
 
+    # Initialize rag-specific chat history if not already present
+    if 'rag_messages' not in st.session_state:
+        st.session_state.rag_messages = []
+
     def extract_mermaid_blocks(markdown_text):
         """Extract only the Mermaid code blocks from a markdown string."""
         pattern = r"```mermaid\n(.*?)```"
@@ -125,10 +128,10 @@ def main():
             ]
 
             generic_phrases = [
-                "i'm unable to answer", 
-                "i am sorry", 
-                "please rephrase", 
-                "notes do not contain", 
+                "i'm unable to answer",
+                "i am sorry",
+                "please rephrase",
+                "notes do not contain",
                 "could you please provide"
             ]
             return all(any(generic in resp for generic in generic_phrases) for resp in last_few)
@@ -145,13 +148,13 @@ def main():
                 "Only use this information to determine reporting lines, structure, or team relationships:\n\n"
                 f"{mermaid_diagrams}\n\nUser's question: {prompt}"
             )
-            st.session_state.messages.append({"role": "user_proxy", "content": prompt})
+            st.session_state.rag_messages.append({"role": "user_proxy", "content": prompt})
 
             response = user_proxy.initiate_chat(
                 graph_agent,
                 message=final_prompt,
                 summary_method="reflection_with_llm",
-                max_turns=3  # Reduce if desired
+                max_turns=3
             )
             if should_stop(response.chat_history):
                 response.chat_history.append({"role": graph_agent.name, "content": "Ending the chat as no relevant answer can be provided."})
@@ -159,7 +162,7 @@ def main():
 
         else:
             personal_content = "\n\n".join(
-                f"# {fname}\n{content}" 
+                f"# {fname}\n{content}"
                 for fname, content in docs.get("personal", {}).items()
             )
 
@@ -185,22 +188,29 @@ def main():
 
             if not content:
                 continue
-            
-            # Add to session state for future reference
-            st.session_state.messages.append({"role": role, "content": content})
+
+            # Add to rag-specific session state
+            st.session_state.rag_messages.append({"role": role, "content": content})
 
             # Display with appropriate avatar
             if role == "user":
                 st_c_chat.chat_message("user", avatar=user_image).write(content)
             else:
-                # Fallback: use generic avatar if available or none
                 st_c_chat.chat_message(role).write(content)
 
-    # Chat function section (timing included inside function)
+    # Display existing rag-specific chat history
+    for msg in st.session_state.rag_messages:
+        role = msg.get("role", "assistant")
+        content = msg.get("content", "").strip()
+        if role == "user" or role == "user_proxy":
+            st_c_chat.chat_message("user", avatar=user_image).write(content)
+        else:
+            st_c_chat.chat_message(role).write(content)
+
+    # Chat function section
     def chat(prompt: str):
         response = generate_response(prompt)
         show_chat_history(response)
-
 
     if prompt := st.chat_input(placeholder=placeholderstr, key="chat_bot"):
         chat(prompt)
